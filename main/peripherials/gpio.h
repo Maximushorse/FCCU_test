@@ -31,10 +31,9 @@
 #define MOSFET_PIN      11 // 11
 #define LED_PIN         33 // 33 led CAN Status
 
-// Function to initialize GPIO
-void gpio_init(void);
 
-// Function to handle GPIO operations in the main loop
+
+void gpio_init(void);
 void gpio_on_loop(void);
 
 #endif // GPIO_H

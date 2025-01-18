@@ -15,6 +15,14 @@
     "cmath": "c",
     "mcpwm_types.h": "c",
     "pwm.h": "c",
-    "esp_chip_info.h": "c"
+    "esp_chip_info.h": "c",
+    "array": "c",
+    "bitset": "c",
+    "string_view": "c",
+    "format": "c",
+    "initializer_list": "c",
+    "span": "c",
+    "regex": "c",
+    "uart.h": "c"
   }
 }

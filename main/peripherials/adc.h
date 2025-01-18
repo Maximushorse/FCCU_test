@@ -36,16 +36,24 @@
 #define ADC_V_FC_SAMPLES_COUNT   32
 #define ADC_T_SAMPLES_COUNT      32
 #define ADC_P_SAMPLES_COUNT      32
-#define ADC_BUTTON_SAMPLES_COUNT 64 // More samples for debouncing
+#define ADC_BUTTON_SAMPLES_COUNT 16
 
 #define ADC_60V_VOLTAGE_COEFF_COUNT 11
 #define ADC_3V3_VOLTAGE_COEFF_COUNT 11
 #define ADC_TEMPERATURE_COEFF_COUNT 2
 
-extern float V_FC_average;
-extern float T_average;
-extern float P_average;
-extern float button_state_average;
+extern float V_FC_filtered_raw;
+extern float V_FC_value;
+
+extern float T_filtered_raw;
+extern float T_value;
+
+extern float P_filtered_raw;
+extern float P_value;
+
+extern float button_state_filtered_raw;
+extern float button_state_value;
+extern float previous_button_state_value;
 
 extern bool button_state;
 extern bool previous_button_state;

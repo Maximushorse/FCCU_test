@@ -25,11 +25,23 @@
 #include "esp_adc/adc_oneshot.h"
 #include "hal/mcpwm_types.h"
 
-void console_init();
-void console_send(const char* message);
-void console_on_loop();
+#define CONSOLE_UART_NUM UART_NUM_0
 
-void send_esp_logi();
-void log_task(void* pvParameters);
+typedef enum _commands {
+    CMD_TOGGLE_SERIAL_OUTPUT = 1,
+    CMD_TOGGLE_FAN_PWM_OUTPUT,
+    CMD_TOGGLE_PWM_GND_OUTPUT,
+    CMD_TOGGLE_MAIN_VALVE,
+    CMD_TOGGLE_PURGE_VALVE,
+    CMD_TOGGLE_MOSFET,
+    CMD_TOGGLE_LED = 0,
+} commands_t;
+
+void console_parse_command(commands_t command);
+void console_print_logs();
+void console_tx_task(void* pvParameters);
+void console_rx_task(void* pvParameters);
+
+void console_init();
 
 #endif // CONSOLE_H

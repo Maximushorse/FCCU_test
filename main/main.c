@@ -12,16 +12,6 @@
 #include "freertos/task.h"
 #include "sdkconfig.h"
 
-#include "driver/gpio.h"
-#include "driver/mcpwm_cmpr.h"
-#include "driver/mcpwm_gen.h"
-#include "driver/mcpwm_oper.h"
-#include "driver/mcpwm_timer.h"
-#include "esp_adc/adc_cali.h"
-#include "esp_adc/adc_cali_scheme.h"
-#include "esp_adc/adc_oneshot.h"
-#include "hal/mcpwm_types.h"
-
 #include "adc.h"
 #include "gpio.h"
 #include "pwm.h"
@@ -29,14 +19,14 @@
 
 #include "fuel_cell_control.h"
 
-void app_main(void)
+#include "driver/uart.h"
+
+void app_main()
 {
     gpio_init();
     adc_init();
     pwm_init();
-
-    // FreeRTOS task working separetly - 4096 is the memory slot
-    xTaskCreate(log_task, "log-task", 4096, NULL, 1, NULL);
+    console_init();
 
     while (1)
     {

@@ -1,7 +1,8 @@
 #include "adc.h"
+#include "ring_buffer.h"
 
 // *** Calibration coefficients ***
-float adc_3v3_voltage_coefficients[ADC_3V3_VOLTAGE_COEFFICIENTS_COUNT] = {
+float adc_3v3_coeffs[ADC_3V3_VOLTAGE_COEFF_COUNT] = {
     2.5679088051711859e-004,
     8.1818138383964200e-004,
     4.4561346617176653e-007,
@@ -15,7 +16,7 @@ float adc_3v3_voltage_coefficients[ADC_3V3_VOLTAGE_COEFFICIENTS_COUNT] = {
     5.0946016674492631e-034,
 };
 
-float adv_60v_voltage_coefficients[ADC_60V_VOLTAGE_COEFFICIENTS_COUNT] = {
+float adc_60v_coefficients[ADC_60V_VOLTAGE_COEFF_COUNT] = {
     2.5679088051711859e-004,
     8.1818138383964200e-004,
     4.4561346617176653e-007,
@@ -43,7 +44,7 @@ float adv_60v_voltage_coefficients[ADC_60V_VOLTAGE_COEFFICIENTS_COUNT] = {
 // 1355 52.2
 // 1362 53.0
 // 1418 56.3
-float adc_temperature_coefficients[ADC_TEMPERATURE_COEFFICIENTS_COUNT] = {
+float adc_temperature_coeffs[ADC_TEMPERATURE_COEFF_COUNT] = {
     -2.7669277558378205e+001,
     5.9176370002593397e-002,
 };
@@ -51,30 +52,32 @@ float adc_temperature_coefficients[ADC_TEMPERATURE_COEFFICIENTS_COUNT] = {
 adc_oneshot_unit_handle_t adc1_handle;
 adc_oneshot_unit_handle_t adc2_handle;
 
-int V_FC_index = 0;
+uint16_t buffer_V_FC[ADC_V_FC_SAMPLES_COUNT];
+uint16_t buffer_T[ADC_T_SAMPLES_COUNT];
+uint16_t buffer_P[ADC_P_SAMPLES_COUNT];
+uint16_t buffer_button_state[ADC_BUTTON_SAMPLES_COUNT];
+
+ring_buffer_t rb_V_FC;
+ring_buffer_t rb_T;
+ring_buffer_t rb_P;
+ring_buffer_t rb_button_state;
+
 int V_FC_raw = 0;
-float V_FC_calibrated = 0;
-float V_FC_samples[ADC_V_FC_SAMPLES_COUNT];
-float V_FC_average = 0;
+float V_FC_filtered_raw = 0;
+float V_FC_value = 0;
 
-int T_index = 0;
 int T_raw = 0;
-float T_calibrated = 0;
-float T_samples[ADC_T_SAMPLES_COUNT];
-float T_average = 0;
+float T_filtered_raw = 0;
+float T_value = 0;
 
-int P_index = 0;
 int P_raw = 0;
-float P_calibrated = 0;
-float P_samples[ADC_P_SAMPLES_COUNT];
-float P_average = 0;
+float P_filtered_raw = 0;
+float P_value = 0;
 
-int button_state_index = 0;
 int button_state_raw = 0;
-float button_state_calibrated = 0;
-float button_state_samples[ADC_BUTTON_SAMPLES_COUNT];
-float button_state_average = 0;
-float previous_button_state_average = 0;
+float button_state_filtered_raw = 0;
+float button_state_value = 0;
+float previous_button_state_value = 0;
 
 bool button_state = 0;
 bool previous_button_state = 0;
@@ -103,101 +106,62 @@ float adc_apply_calibration(float coefficients[], uint8_t coeff_count, int adc_r
     return result;
 }
 
+float adc_apply_filter(ring_buffer_t* rb)
+{
+    float sum = 0;
+
+    uint16_t sample = 0;
+    for (int i = 0; i < rb->size; i++)
+    {
+        if (ring_buffer_peek(rb, &sample, i))
+        {
+            sum += sample;
+        }
+    }
+
+    return sum / (float) rb->count;
+}
+
 void adc_on_loop()
 {
-    // adc_oneshot_read(adc2_handle, ADC_12V_CHANNEL, &V_12_raw);
+    // Read raw values from ADC
     adc_oneshot_read(adc1_handle, ADC_V_FC_CHANNEL, &V_FC_raw);
     adc_oneshot_read(adc1_handle, ADC_T_CHANNEL, &T_raw);
     adc_oneshot_read(adc1_handle, ADC_P_CHANNEL, &P_raw);
     adc_oneshot_read(adc2_handle, ADC_BUTTON_STATE_CHANNEL, &button_state_raw);
 
-    // V_12_calibrated = adc_apply_calibration(V_12_raw);
-    V_FC_calibrated = V_FC_raw; // TODO adc_raw_to_mv_calibrated_60(V_FC_raw);
-    T_calibrated = adc_apply_calibration(adc_temperature_coefficients, ADC_TEMPERATURE_COEFF_COUNT, T_raw);
-    P_calibrated = adc_apply_calibration(adc_3v3_voltage_coefficients, ADC_3V3_VOLTAGE_COEFF_COUNT, P_raw);
-    button_state_calibrated
-        = adc_apply_calibration(adc_3v3_voltage_coefficients, ADC_3V3_VOLTAGE_COEFF_COUNT, button_state_raw);
+    // Add new sample to the ring buffer
+    ring_buffer_enqueue(&rb_V_FC, V_FC_raw);
+    ring_buffer_enqueue(&rb_T, T_raw);
+    ring_buffer_enqueue(&rb_P, P_raw);
+    ring_buffer_enqueue(&rb_button_state, button_state_raw);
 
-    P_calibrated = adc_map(P_calibrated, 0, 2.995, 0, 300); // Pressure: 0-5 V => 0-300 bar
+    // Apply filter to the ring buffer
+    V_FC_filtered_raw = adc_apply_filter(&rb_V_FC);
+    T_filtered_raw = adc_apply_filter(&rb_T);
+    P_filtered_raw = adc_apply_filter(&rb_P);
+    button_state_filtered_raw = adc_apply_filter(&rb_button_state);
 
-    // Średnia ruchoma - przerobić na funkcje
-    if (V_FC_index <= ADC_V_FC_SAMPLES_COUNT)
-    {
-        V_FC_samples[V_FC_index] = V_FC_calibrated;
-        V_FC_index++;
-    }
-    else
-    {
-        V_FC_index = 0;
-    }
+    // Apply calibration curves
+    V_FC_value = adc_apply_calibration(adc_60v_coefficients, ADC_60V_VOLTAGE_COEFF_COUNT, V_FC_filtered_raw);
+    T_value = adc_apply_calibration(adc_temperature_coeffs, ADC_TEMPERATURE_COEFF_COUNT, T_filtered_raw);
+    P_value = adc_apply_calibration(adc_3v3_coeffs, ADC_3V3_VOLTAGE_COEFF_COUNT, P_filtered_raw);
+    button_state_value = adc_apply_calibration(adc_3v3_coeffs, ADC_3V3_VOLTAGE_COEFF_COUNT, button_state_filtered_raw);
 
-    for (int i = 0; i < ADC_V_FC_SAMPLES_COUNT; i++)
-    {
-        V_FC_average = V_FC_average + V_FC_samples[i];
-    }
-    V_FC_average = (V_FC_average / ADC_V_FC_SAMPLES_COUNT); // ADC input voltage
-    // V_FC_average = ((FC_V_average / 20) * 2953) / 60000; // fuel cell 60V => 3V adc input
+    // Map to physical values if necessary
+    P_value = adc_map(P_value, 0, 2.995, 0, 300); // Pressure: 0-3 V => 0-300 bar
 
-    // Temperature
-    if (T_index <= ADC_T_SAMPLES_COUNT)
-    {
-        T_samples[T_index] = T_calibrated;
-        T_index++;
-    }
-    else
-    {
-        T_index = 0;
-    }
-
-    for (int i = 0; i < ADC_T_SAMPLES_COUNT; i++)
-    {
-        T_average = T_average + T_samples[i];
-    }
-    T_average = (T_average / ADC_T_SAMPLES_COUNT);
-
-    // Pressure
-    if (P_index <= ADC_P_SAMPLES_COUNT)
-    {
-        P_samples[P_index] = P_calibrated;
-        P_index++;
-    }
-    else
-    {
-        P_index = 0;
-    }
-    for (int i = 0; i < ADC_P_SAMPLES_COUNT; i++)
-    {
-        P_average = P_average + P_samples[i];
-    }
-    P_average = (P_average / ADC_P_SAMPLES_COUNT); // TEST...
-    // P_bar = (P_average / 3) * 500; // 500bar sesnor 3V adc inpout = 5V from sensor
-
-    if (button_state_index <= ADC_BUTTON_SAMPLES_COUNT)
-    {
-        button_state_samples[button_state_index] = button_state_calibrated;
-        button_state_index++;
-    }
-    else
-    {
-        button_state_index = 0;
-    }
-    for (int i = 0; i < ADC_BUTTON_SAMPLES_COUNT; i++)
-    {
-        button_state_average = button_state_average + button_state_samples[i];
-    }
-    button_state_average = (button_state_average / ADC_BUTTON_SAMPLES_COUNT);
-
+    // TODO move to separate function
     // zbocze narastajace
-    if (button_state_average - previous_button_state_average >= 0.5)
+    if (button_state_value - previous_button_state_value >= 0.5)
     {
-        button_state = 1;
+        button_state = true;
     }
     else
     {
-        button_state = 0;
+        button_state = false;
     }
-
-    previous_button_state_average = button_state_average; // TODO
+    previous_button_state_value = button_state_value;
 }
 
 void adc_init()
@@ -223,4 +187,9 @@ void adc_init()
     adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_1, &config);
     adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_2, &config);
     adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_0, &config);
+
+    ring_buffer_init(&rb_V_FC, buffer_V_FC, ADC_V_FC_SAMPLES_COUNT);
+    ring_buffer_init(&rb_T, buffer_T, ADC_T_SAMPLES_COUNT);
+    ring_buffer_init(&rb_P, buffer_P, ADC_P_SAMPLES_COUNT);
+    ring_buffer_init(&rb_button_state, buffer_button_state, ADC_BUTTON_SAMPLES_COUNT);
 }
